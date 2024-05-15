@@ -1,6 +1,6 @@
 #include "arena.h"
+#include <bits/pthreadtypes.h>
 #include <pthread.h>
-#include <time.h>
 
 typedef struct arena {
     arena_t a_id;
@@ -8,8 +8,6 @@ typedef struct arena {
     void* a_curr_memaddr;
     uint32_t a_size;
     uint32_t a_notinuse_size;
-    struct arena* next;
-    struct arena* prev;
 } Arena;
 
 typedef struct memory_chunk {
@@ -28,8 +26,10 @@ bool arena_initialized = false;
 
 pthread_mutex_t arena_initialized_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-Arena* open_arenas;
-MemoryChunk* allocated_memory_chunks[MAX_ARENAS];
+pthread_mutex_t prevent_id_race_condition = PTHREAD_MUTEX_INITIALIZER;
+
+Arena* open_arenas[MAX_ARENAS] = {NULL};
+MemoryChunk* allocated_memory_chunks[MAX_ARENAS] = {NULL};
 
 pthread_mutex_t open_arenas_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t allocated_memory_chunks_mutex[MAX_ARENAS];
@@ -40,8 +40,31 @@ static void arena_mutex_initialize(void) {
     }
 }
 
+// Perform any necessary initialization before allocating any arenas.
 static void arena_initialize(void) {
     arena_mutex_initialize();
+}
+
+static arena_t arena_find_available_id(void) {
+    pthread_mutex_lock(&current_arena_id_mutex);
+    if (current_arena_id < MAX_ARENAS) {
+        arena_t temp_id = current_arena_id;
+        current_arena_id++;
+        pthread_mutex_unlock(&current_arena_id_mutex);
+        return temp_id;
+    }
+    pthread_mutex_unlock(&current_arena_id_mutex);
+
+    pthread_mutex_lock(&open_arenas_mutex);
+    for (int i = 0; i < MAX_ARENAS; i++) {
+        if (open_arenas[i] == NULL) {
+            pthread_mutex_unlock(&open_arenas_mutex);
+            return i;
+        }
+    }
+    pthread_mutex_unlock(&open_arenas_mutex);
+
+    return -1; // no arena spots available
 }
 
 arena_t arena_allocate(size_t bytes) {
@@ -51,15 +74,15 @@ arena_t arena_allocate(size_t bytes) {
     }
     pthread_mutex_unlock(&arena_initialized_mutex);
 
-    pthread_mutex_lock(&current_arena_id_mutex);
-    if (current_arena_id > MAX_ARENAS) {
+    pthread_mutex_lock(&prevent_id_race_condition);
+    arena_t new_id = arena_find_available_id();
+
+    if (new_id == -1) {
 #ifdef DEBUG
         fprintf(stderr, "ERROR: can't have more than %d arenas\n", MAX_ARENAS);
 #endif
-        pthread_mutex_unlock(&current_arena_id_mutex);
         return -1;
     }
-    pthread_mutex_unlock(&current_arena_id_mutex);
 
     Arena* new_arena = (Arena*)malloc(sizeof(Arena));
 
@@ -83,17 +106,13 @@ arena_t arena_allocate(size_t bytes) {
     new_arena->a_curr_memaddr = new_arena->a_start_memaddr;
     new_arena->a_size = bytes;
     new_arena->a_notinuse_size = bytes;
+    new_arena->a_id = new_id;
 
     pthread_mutex_lock(&open_arenas_mutex);
-    new_arena->next = open_arenas;
-    new_arena->prev = NULL;
-    open_arenas = new_arena;
+    open_arenas[new_arena->a_id] = new_arena;
     pthread_mutex_unlock(&open_arenas_mutex);
-    
-    pthread_mutex_lock(&current_arena_id_mutex);
-    new_arena->a_id = current_arena_id;
-    current_arena_id++;
-    pthread_mutex_unlock(&current_arena_id_mutex);
+
+    pthread_mutex_unlock(&prevent_id_race_condition);
 
     return new_arena->a_id;
 }
@@ -114,23 +133,20 @@ int arena_deallocate(arena_t id) {
     }
 
     pthread_mutex_lock(&open_arenas_mutex);
-    Arena* arena = open_arenas;
-    while (arena != NULL) {
-        if (arena->a_id == id) {
-            // this means it is the head of the list
-            if (arena->prev == NULL) {
-                open_arenas = arena->next;
-                printf("Open arena: %p\n", open_arenas);
-            } else {
-                arena->prev->next = arena->next;
-            }
 
-            arena_free_arena_structure(arena);
+    Arena* arena = open_arenas[id];
 
-            break;
-        }
-        arena = arena->next;
+    if (arena == NULL) {
+#ifdef DEBUG
+        fprintf(stderr, "ERROR: arena requested to be deallocated has not been allocated yet\n");
+#endif
+        return -1;
     }
+
+    arena_free_arena_structure(arena);
+
+    open_arenas[id] = NULL;
+
     pthread_mutex_unlock(&open_arenas_mutex);
 
     // if arena ids were to be recycled, this would need to be done differently
@@ -178,13 +194,7 @@ void* arena_request_memory(arena_t id, size_t bytes) {
     }
 
     pthread_mutex_lock(&open_arenas_mutex);
-    Arena* arena = open_arenas;
-    while (arena != NULL) {
-        if (arena->a_id == id) {
-            break;
-        }
-        arena = arena->next;
-    }
+    Arena* arena = open_arenas[id];
 
     if (arena == NULL) {
 #ifdef DEBUG
@@ -255,13 +265,11 @@ int arena_free_memory(arena_t id, void* memaddr) {
 
 void arena_cleanup(void) {
     pthread_mutex_lock(&open_arenas_mutex);
-    Arena* arena = open_arenas;
 
-    while (arena != NULL) {
-        Arena* temp = arena->next;
-        free(arena->a_start_memaddr);
-        free(arena);
-        arena = temp;
+    for (int i = 0; i < MAX_ARENAS; i++) {
+        if (open_arenas[i] != NULL) {
+            arena_free_arena_structure(open_arenas[i]);
+        } 
     }
 
     pthread_mutex_unlock(&open_arenas_mutex);

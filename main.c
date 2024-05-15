@@ -3,6 +3,7 @@
 
 int main(void) {
     arena_t arena_1 = arena_allocate(1000);
+    arena_t arena_2 = arena_allocate(5000);
 
     printf("Arena id: %d\n", arena_1);
 
@@ -22,11 +23,12 @@ int main(void) {
 
     printf("Free memory status: %d\n", status);
 
-    int_buffer = (int*)arena_request_memory(arena_1, 1000);
+    int_buffer = (int*)arena_request_memory(arena_1, 10);
 
     printf("Buffer later: %p\n", int_buffer);
 
     arena_deallocate(arena_1);
+    arena_deallocate(arena_2);
 
     arena_cleanup();
 

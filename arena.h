@@ -14,18 +14,18 @@
 typedef struct arena Arena;
 typedef uint32_t arena_t; 
 
-// Creates an arena of 'bytes' size, and returns a unique identifier for it.
+// Creates an arena of 'bytes' size, and returns a unique identifier.
 // On error, it returns -1.
 arena_t arena_allocate(size_t bytes);
 
-// Deallocates a previously allocated arena. Returns -1 on error and sets errno.
+// Deallocates a previously allocated arena. Returns -1 on error.
 int arena_deallocate(arena_t id);
 
 // Requests a memory address of 'bytes' size from the arena specified by the 'id'.
-// On error, such as no memory available, it returns NULL.
+// Returns NULL on error.
 void* arena_request_memory(arena_t id, size_t bytes);
 
-// Frees a memory address from a given arena. Returns -1 on error and sets errno.
+// Frees a memory address from a given arena. Returns -1 on error.
 int arena_free_memory(arena_t id, void* memaddr);
 
 // Cleanup of all arenas at the end of execution. Will invalidate any pointers 
