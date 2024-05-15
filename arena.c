@@ -18,7 +18,7 @@ typedef struct memory_chunk {
     struct memory_chunk* next;
 } MemoryChunk;
 
-arena_t current_arena_id = 1;
+arena_t current_arena_id = 0;
 
 pthread_mutex_t current_arena_id_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -81,6 +81,7 @@ arena_t arena_allocate(size_t bytes) {
 #ifdef DEBUG
         fprintf(stderr, "ERROR: can't have more than %d arenas\n", MAX_ARENAS);
 #endif
+        pthread_mutex_unlock(&prevent_id_race_condition);
         return -1;
     }
 

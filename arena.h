@@ -12,7 +12,7 @@
 #define DEBUG
 
 typedef struct arena Arena;
-typedef uint32_t arena_t; 
+typedef int32_t arena_t; 
 
 // Creates an arena of 'bytes' size, and returns a unique identifier.
 // On error, it returns -1.
