@@ -269,6 +269,9 @@ void arena_cleanup(void) {
 
     for (int i = 0; i < MAX_ARENAS; i++) {
         if (open_arenas[i] != NULL) {
+#ifdef DEBUG
+            printf("Freed arena: %d\n", i);
+#endif
             arena_free_arena_structure(open_arenas[i]);
         } 
     }
@@ -278,9 +281,13 @@ void arena_cleanup(void) {
     for (int i = 0; i < MAX_ARENAS; i++) {
         pthread_mutex_lock(&(allocated_memory_chunks_mutex[i]));
         MemoryChunk* mem_chunk = allocated_memory_chunks[i];
+        int counter = 0;
         while (mem_chunk != NULL) {
             MemoryChunk* temp = mem_chunk->next;
             free(mem_chunk);
+#ifdef DEBUG
+            printf("Freed memory chunk %d of arena %d\n", counter, i);
+#endif
             mem_chunk = temp;
         }
         pthread_mutex_unlock(&(allocated_memory_chunks_mutex[i]));
